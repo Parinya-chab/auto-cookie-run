@@ -1,0 +1,10 @@
+# Versions used to build v2.18.19 (Python 3.11, Windows)
+opencv-python==5.0.0.93
+numpy==2.4.6
+mss==10.2.0
+pyautogui==0.9.54
+pygetwindow==0.0.9
+pynput==1.8.2
+requests==2.34.2
+pillow==12.3.0
+pyinstaller==6.21.0

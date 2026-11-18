@@ -1,0 +1,29 @@
+{
+  "selected_id": "DOUBLE_COIN",
+  "templates": [
+    {
+      "template_id": "DOUBLE_COIN",
+      "label": "Double Coins",
+      "filename": "DOUBLE_COIN.png",
+      "source_frame_size": null
+    },
+    {
+      "template_id": "BASE_SPEED",
+      "label": "Base Speed",
+      "filename": "BASE_SPEED.png",
+      "source_frame_size": [
+        1101,
+        636
+      ]
+    },
+    {
+      "template_id": "MAGNET",
+      "label": "Magnet",
+      "filename": "MAGNET.png",
+      "source_frame_size": [
+        999,
+        579
+      ]
+    }
+  ]
+}
