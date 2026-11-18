@@ -1,4 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import re
+
+# The exe name follows BOT_VERSION in bot_config.py (the updater relies on this name).
+with open(os.path.join(SPECPATH, "bot_config.py"), encoding="utf-8") as _f:
+    BOT_VERSION = re.search(r'^BOT_VERSION = "([^"]+)"', _f.read(), re.M).group(1)
 
 
 a = Analysis(
@@ -41,7 +47,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="CookieRunBasicMouse_v2.18.19",
+    name=f"CookieRunBasicMouse_v{BOT_VERSION}",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

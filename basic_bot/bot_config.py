@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 
 
-BOT_VERSION = "2.18.19"
+BOT_VERSION = "2.18.20"
+# Self-update: new versions are read from this GitHub repository's Releases.
+GITHUB_REPO = "Parinya-chab/auto-cookie-run"
+UPDATE_CHECK_ON_START = True
 BOT_NAME = f"CookieRun Basic Mouse Bot v{BOT_VERSION}"
 MULTI_BOT_NAME = f"CookieRun Multi Mouse Bot v{BOT_VERSION}"
 GAME_WINDOW_TITLE = "main_cookierun"

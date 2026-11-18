@@ -72,6 +72,8 @@ try:
     from .bot_config import (
         BOT_NAME,
         BOT_VERSION,
+        GITHUB_REPO,
+        UPDATE_CHECK_ON_START,
         ACTION_BY_NAME,
         BOOTS_BUTTON_ACTIONS,
         BOOTS_SCREEN_TEMPLATE,
@@ -180,10 +182,13 @@ try:
         normalize_for_template_matching,
     )
     from .boost_templates import BoostTemplateDefault, BoostTemplateManager
+    from . import updater
 except ImportError:
     from bot_config import (
         BOT_NAME,
         BOT_VERSION,
+        GITHUB_REPO,
+        UPDATE_CHECK_ON_START,
         ACTION_BY_NAME,
         BOOTS_BUTTON_ACTIONS,
         BOOTS_SCREEN_TEMPLATE,
@@ -292,6 +297,7 @@ except ImportError:
         normalize_for_template_matching,
     )
     from boost_templates import BoostTemplateDefault, BoostTemplateManager
+    import updater
 
 
 class RECT(ctypes.Structure):
@@ -3720,6 +3726,8 @@ class CookieBotApp:
             load_reward_root_setting()
         )
         self.settings_window = None
+        self.update_info = None
+        self.update_busy = False
         self.log_queue = queue.Queue()
         self.ui_queue = queue.Queue()
         self.hotkey_listener = None
@@ -3746,6 +3754,10 @@ class CookieBotApp:
         print(f"[READY] {BOT_NAME} พร้อมใช้งาน")
         if self.reward_path_load_warning:
             print(f"[SETTINGS WARNING] {self.reward_path_load_warning}")
+        if getattr(sys, "frozen", False):
+            threading.Thread(target=self._cleanup_old_versions, daemon=True).start()
+        if UPDATE_CHECK_ON_START:
+            self.root.after(2500, lambda: self.check_for_updates(silent=True))
 
     def _build_ui(self):
         self.root.title(BOT_NAME)
@@ -3790,8 +3802,24 @@ class CookieBotApp:
             padx=9,
             pady=4,
         )
-        self.settings_button.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.settings_button.grid(row=0, column=2, sticky="e", padx=(6, 0))
         self.locked_widgets.append(self.settings_button)
+        self.update_button = tk.Button(
+            header_frame,
+            text="⟳ อัปเดต",
+            command=self.on_update_button,
+            font=("Segoe UI", 9, "bold"),
+            bg=self.PANEL,
+            fg=self.TEXT,
+            activebackground="#39434d",
+            activeforeground=self.TEXT,
+            relief="flat",
+            cursor="hand2",
+            padx=9,
+            pady=4,
+        )
+        self.update_button.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.locked_widgets.append(self.update_button)
 
         run_frame = self._make_group(" การตั้งค่าการรัน ")
         run_frame.columnconfigure(1, weight=1)
@@ -5003,9 +5031,143 @@ class CookieBotApp:
                 self._apply_worker_status(value)
             elif action == "finished":
                 self._reset_stopped_ui()
+            elif action == "update_checked":
+                self._on_update_checked(*value)
+            elif action == "update_progress":
+                done, total = value
+                percent = f" {done * 100 // total}%" if total else ""
+                self.update_button.config(text=f"⬇ กำลังโหลด{percent}")
+            elif action == "update_downloaded":
+                self._on_update_downloaded(value)
+            elif action == "update_failed":
+                self._on_update_failed(value)
 
         if not self.closing:
             self.root.after(100, self._poll_queues)
+
+    # ------------------------------------------------------------ self-update
+    def _cleanup_old_versions(self):
+        try:
+            removed = updater.cleanup_old_versions(Path(sys.executable), BOT_VERSION)
+        except Exception as error:  # cleanup is best-effort only
+            print(f"[UPDATE] ลบเวอร์ชันเก่าไม่สำเร็จ: {type(error).__name__}")
+            return
+        for name in removed:
+            print(f"[UPDATE] ลบเวอร์ชันเก่าแล้ว: {name}")
+
+    def check_for_updates(self, silent=False):
+        if self.update_busy or self.closing:
+            return
+        self.update_busy = True
+        if not silent:
+            self.update_button.config(text="⟳ กำลังตรวจ...")
+
+        def worker():
+            try:
+                result = updater.fetch_latest(GITHUB_REPO)
+            except updater.UpdateError as error:
+                result = error
+            except Exception as error:
+                result = updater.UpdateError(f"ตรวจอัปเดตไม่สำเร็จ ({type(error).__name__})")
+            self.ui_queue.put(("update_checked", (silent, result)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_update_button(self):
+        if self.update_info is not None:
+            self._ask_install_update(self.update_info)
+        else:
+            self.check_for_updates(silent=False)
+
+    def _on_update_checked(self, silent, result):
+        self.update_busy = False
+        if isinstance(result, updater.UpdateError):
+            self.update_button.config(text="⟳ อัปเดต")
+            print(f"[UPDATE] {result}")
+            if not silent:
+                messagebox.showwarning("ตรวจอัปเดต", str(result), parent=self.root)
+            return
+        if not updater.is_newer(result.version, BOT_VERSION):
+            self.update_button.config(text="⟳ อัปเดต")
+            print(f"[UPDATE] ใช้เวอร์ชันล่าสุดอยู่แล้ว (v{BOT_VERSION})")
+            if not silent:
+                messagebox.showinfo("ตรวจอัปเดต", f"ใช้เวอร์ชันล่าสุดอยู่แล้ว (v{BOT_VERSION})", parent=self.root)
+            return
+        self.update_info = result
+        self.update_button.config(text=f"⬆ v{result.version}", bg=self.ACCENT, fg="#1b1b1b")
+        print(f"[UPDATE] มีเวอร์ชันใหม่ v{result.version} (ตอนนี้ v{BOT_VERSION}) กดปุ่ม ⬆ เพื่ออัปเดต")
+        if not self.running:
+            self._ask_install_update(result)
+
+    def _ask_install_update(self, info):
+        if self.running:
+            messagebox.showinfo("อัปเดต", "กด \"หยุดการทำงาน\" ก่อน แล้วค่อยกดอัปเดต", parent=self.root)
+            return
+        notes = info.notes
+        if len(notes) > 700:
+            notes = notes[:700].rstrip() + " ..."
+        if not getattr(sys, "frozen", False):
+            messagebox.showinfo(
+                "มีเวอร์ชันใหม่",
+                f"มีเวอร์ชันใหม่ v{info.version}\n\nตอนนี้รันจากซอร์สโค้ด ให้อัปเดตด้วย git pull\n{info.page_url}",
+                parent=self.root,
+            )
+            return
+        size_mb = info.zip_size / (1024 * 1024) if info.zip_size else 0
+        if not messagebox.askyesno(
+            "มีเวอร์ชันใหม่",
+            f"มีเวอร์ชันใหม่ v{info.version} (ตอนนี้ v{BOT_VERSION})\n\n{notes}\n\n"
+            f"ดาวน์โหลด {size_mb:.0f} MB และอัปเดตเลยไหม?\n"
+            "(การตั้งค่าและ Telegram ที่บันทึกไว้จะใช้ต่อได้เหมือนเดิม)",
+            parent=self.root,
+        ):
+            return
+        self._start_update_download(info)
+
+    def _start_update_download(self, info):
+        if self.update_busy:
+            return
+        self.update_busy = True
+        self.update_button.config(text="⬇ กำลังโหลด", state="disabled")
+        target_dir = Path(sys.executable).resolve().parent
+
+        def progress(done, total):
+            self.ui_queue.put(("update_progress", (done, total)))
+
+        def worker():
+            try:
+                new_exe = updater.download_update(info, target_dir, progress=progress)
+            except updater.UpdateError as error:
+                self.ui_queue.put(("update_failed", str(error)))
+                return
+            except Exception as error:
+                self.ui_queue.put(("update_failed", f"อัปเดตไม่สำเร็จ ({type(error).__name__})"))
+                return
+            self.ui_queue.put(("update_downloaded", new_exe))
+
+        print(f"[UPDATE] กำลังดาวน์โหลด v{info.version} ...")
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_update_failed(self, message):
+        self.update_busy = False
+        self.update_button.config(text="⬆ ลองอีกครั้ง", state="normal")
+        print(f"[UPDATE] {message}")
+        messagebox.showerror("อัปเดตไม่สำเร็จ", message, parent=self.root)
+
+    def _on_update_downloaded(self, new_exe):
+        self.update_busy = False
+        print(f"[UPDATE] ดาวน์โหลดเสร็จ: {new_exe.name}")
+        messagebox.showinfo(
+            "อัปเดตเสร็จแล้ว",
+            f"กด OK เพื่อเปิดเวอร์ชันใหม่\n({new_exe.name})\n\nเวอร์ชันเก่าจะถูกลบให้อัตโนมัติ",
+            parent=self.root,
+        )
+        try:
+            updater.launch(new_exe)
+        except OSError as error:
+            self._on_update_failed(f"เปิดเวอร์ชันใหม่ไม่ได้ ({type(error).__name__}) ลองเปิด {new_exe.name} เอง")
+            return
+        self.on_close()
 
     def on_close(self):
         if self.closing:
